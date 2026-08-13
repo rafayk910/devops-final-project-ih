@@ -1,0 +1,21 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: expensy-config
+  namespace: expensy
+data:
+  PORT: "8706"
+  REDIS_HOST: "redis"
+  REDIS_PORT: "6379"
+  DATABASE_URI: "mongodb://root:example@mongo:27017/expensy?authSource=admin"
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: expensy-secret
+  namespace: expensy
+type: Opaque
+stringData:
+  MONGO_INITDB_ROOT_USERNAME: "root"
+  MONGO_INITDB_ROOT_PASSWORD: "example"
+  REDIS_PASSWORD: "someredispassword"

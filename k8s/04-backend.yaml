@@ -1,0 +1,50 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+  namespace: expensy
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: backend }
+  template:
+    metadata:
+      labels: { app: backend }
+    spec:
+      containers:
+        - name: backend
+          image: 686699774218.dkr.ecr.eu-central-1.amazonaws.com/expensy-backend:1e64885973a92f59b2428b28894ca0da0ac8aa88
+          ports:
+            - containerPort: 8706
+          envFrom:
+            - configMapRef: { name: expensy-config }
+          env:
+            - name: REDIS_PASSWORD
+              valueFrom:
+                secretKeyRef: { name: expensy-secret, key: REDIS_PASSWORD }
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          readinessProbe:
+            tcpSocket: { port: 8706 }
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket: { port: 8706 }
+            initialDelaySeconds: 20
+            periodSeconds: 15
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend
+  namespace: expensy
+spec:
+  selector: { app: backend }
+  ports:
+    - port: 8706
+      targetPort: 8706
