@@ -1,31 +1,25 @@
 .vscode
-# Ignore node_modules directory
-node_modules
+.idea
+.DS_Store
 
-# Ignore build output directory
+# dependencies & build output (rebuilt inside the image)
+node_modules
 /.next
 
-# Ignore development files
+# env files — never bake secrets/config into the image
+/.env
 /.env.local
 /.env.development.local
 /.env.test.local
 /.env.production.local
 
-# Ignore log files
+# logs
 *.log
-
-# Ignore npm debug log
 npm-debug.log*
-
-# Ignore yarn error log
 yarn-error.log
 
-# Ignore IDE files
-.idea
-.vscode
-
-# Ignore package-lock.json
-package-lock.json
-
-# Ignore .DS_Store files
-.DS_Store
+# docker & git meta
+Dockerfile
+.dockerignore
+.git
+.gitignore
