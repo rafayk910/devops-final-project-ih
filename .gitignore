@@ -10,3 +10,15 @@ node_modules/
 dist/
 .next/
 trust-policy.json
+
+# Terraform
+**/.terraform/*
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+
+# Terraform provider dirs (belt-and-suspenders)
+.terraform/
+**/.terraform/
