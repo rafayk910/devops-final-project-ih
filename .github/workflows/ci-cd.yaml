@@ -45,12 +45,25 @@ jobs:
           NEXT_PUBLIC_API_URL: /api
         run: npm run build
 
-  # ---------- CD: build images, push to ECR (only on push to main) ----------
+# ---------- CD: build images, push to ECR (only on push to main) ----------
   docker-push:
     needs: build-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
+    permissions:
+      id-token: write
+      contents: read
     steps:
+      - name: Debug OIDC claims
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const tok = await core.getIDToken('sts.amazonaws.com')
+            const claims = JSON.parse(Buffer.from(tok.split('.')[1], 'base64').toString())
+            core.info('SUB: ' + claims.sub)
+            core.info('AUD: ' + claims.aud)
+            core.info('REPO: ' + claims.repository)
+
       - uses: actions/checkout@v4
 
       - name: Configure AWS credentials (OIDC)
