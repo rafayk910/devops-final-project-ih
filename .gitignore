@@ -22,3 +22,4 @@ crash.log
 # Terraform provider dirs (belt-and-suspenders)
 .terraform/
 **/.terraform/
+cw-trust.json

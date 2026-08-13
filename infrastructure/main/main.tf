@@ -46,6 +46,8 @@ module "eks" {
   cluster_name    = local.name
   cluster_version = var.cluster_version
 
+  cluster_enabled_log_types = ["api", "audit", "authenticator", "controllerManager", "scheduler"]
+
   cluster_endpoint_public_access = true
 
   vpc_id     = module.vpc.vpc_id

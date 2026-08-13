@@ -1,157 +1,211 @@
-<!-- Final Project: End-to-End DevOps Deployment -->
+# Expensy — End-to-End DevOps Deployment
 
-## Lesson Overview :pencil2:
+Expensy is a lightweight expense-tracker application (Next.js frontend, Node/Express
+backend, MongoDB, Redis) deployed through a full DevOps lifecycle: containerized,
+built and pushed by CI/CD, provisioned on AWS EKS with Terraform, and observed with
+Prometheus/Grafana and CloudWatch.
 
-In this project, we will focus on the hands-on implementation of the learnings throughout this program, where you will gain practical insights while setting up the entire DevOps cycle and deploying applications using acquired best practices. 
+This README covers local development, container usage, and cloud deployment. See
+[`SECURITY.md`](./SECURITY.md) for the security and compliance posture, and
+[`monitoring/README.md`](./monitoring/README.md) for the monitoring stack.
 
-<br>
+## Architecture
 
-## Learning Objectives :notebook:
+```
+Browser
+   │
+   ▼
+AWS Load Balancer (ELB)
+   │
+   ▼
+nginx gateway (single entry point)
+   ├── /api/*  ──▶ backend  (Node/Express, :8706, 2 replicas)
+   └── /*      ──▶ frontend (Next.js, :3000, 2 replicas)
+                      │
+              ┌───────┴────────┐
+              ▼                ▼
+           MongoDB           Redis
+        (:27017)           (:6379)
+```
 
-By the end of this project, you will: 
+- **Frontend** exposes `NEXT_PUBLIC_API_URL=/api` (a relative path), so a single image
+  works in every environment — no per-environment rebuild.
+- **Gateway** (nginx) merges frontend and backend behind one origin, so requests are
+  same-origin (no CORS) and only one port is public.
+- All data services and app services are internal (`ClusterIP`); only the gateway is
+  exposed via `LoadBalancer`.
 
-1. Apply DevOps practices to a real-world project in a production environment.
-2. Build an effective CI/CD pipeline to automate delivery.
-3. Automate provisioning, configuration and infrastructure management using Terraform and Ansible. 
-4. Deploy and manage containerized applications using Kubernetes. 
-5. Integrate applications with Managed Kubernetes Service and other cloud services
-6. Set up monitoring and create dashboards using Grafana and Prometheus
-7. Resolve issues arising during the entire cycle using best practices
+## Repository layout
 
-<br>
+```
+.
+├── expensy_frontend/      # Next.js app + Dockerfile
+├── expensy_backend/       # Node/Express API (TypeScript) + Dockerfile
+├── nginx/                 # gateway reverse-proxy config
+├── docker-compose.yaml    # full local stack (all 4 services + gateway)
+├── k8s/                   # Kubernetes manifests (namespace, config, deployments, services, HPA)
+├── infrastructure/
+│   ├── bootstrap/         # S3 + DynamoDB remote-state backend
+│   └── main/              # VPC + EKS cluster (Terraform)
+├── monitoring/            # Grafana dashboard JSON exports + install notes
+├── .github/workflows/     # CI/CD pipeline (ci-cd.yaml)
+├── SECURITY.md
+└── README.md
+```
 
-## Project Highlights :key:
+## 1. Local development
 
-### Product Management:
+### Prerequisites
+- Docker, Node.js 24, npm
 
-1. This capstone project is a team project, where you will assume roles and work as a scrum team. 
-2. The following indicators will be helpful for the successful completion of your project:         
-    - The duration of one Sprint Cycle is 5 days. So, you will have three Sprint Cycles for this project.
-    - Start with identifying a Scrum Master within your team.
-    - Make sure to follow all scrum events like Sprint, Sprint Planning, Daily Scrum, Sprint Review, Sprint Retrospection.
-    - Plan a Sprint Review at the end of every Sprint Cycle.
-3. Your instructor will be the product owner. If you have any questions regarding the requirements or deliverables, you can address them to the Product Owner.
-4. **Suggestion:** Start with a Team Agreement 
-    - Decide your working hours
-    - Decide your definition of done
-    - Decide your team’s way of work
-    - Identify the time when you will have your scrum events like daily scrum, sprint review, and other scrum events 
-5. We will make use of Azure Boards (or JIRA boards or any other similar tool) to manage work
-6. Please ensure that you have your Daily Scrum and evening sync-up (daily retrospective) every day.
-7. The final sprint review and respective presentations will be held on the last day of the project (during the second half).
+### Option A — full stack via docker-compose (recommended)
 
-<br>
+```bash
+docker compose up --build
+```
 
-### Pre-requisites
+Open **http://localhost:8080** (the gateway). This runs frontend, backend, MongoDB,
+Redis, and the nginx gateway together with correct service-name networking and
+authenticated Redis.
 
-1. You can use any cloud of your choice (AWS, Azure or Hybrid). Make sure to have an account with free-trial or an account with enough credit.
-2. Create a free account on the DockerHub registry. This account will be used to host docker images used in the project
+### Option B — run services directly (for active development)
 
-### Web Application Introduction
+Start the datastores:
 
-This sample application is an Expense Tracker with four microservices, a backend built in node, frontend built with Next.js (Node based framework), along with a MongoDB database and Redis caching DB.
+```bash
+docker run --name mongo -d -p 27017:27017 \
+  -e MONGO_INITDB_ROOT_USERNAME=root -e MONGO_INITDB_ROOT_PASSWORD=example mongo:latest
 
-[Clone this repository and share it with the team](https://github.com/saurabhd2106/devops-final-project.git)
+docker run --name redis -d -p 6379:6379 redis:latest
+```
 
-Your task is to build a solution for this application that is scalable and can support zero to thousands of users. 
+Backend — create `expensy_backend/.env` (see `expensy_backend/.env.example`):
 
-### Make sure to use the following:
+```
+PORT=8706
+DATABASE_URI=mongodb://root:example@127.0.0.1:27017/expensy?authSource=admin
+REDIS_HOST=127.0.0.1
+REDIS_PORT=6379
+```
 
-#### 1. Infrastructure as Code (IaC):
+```bash
+cd expensy_backend && npm install && npm start
+```
 
-- Use Terraform, AWS CloudFormation, or another IaC tool to define your infrastructure.
+Frontend — create `expensy_frontend/.env.local`:
 
-#### 2. Your infrastructure should include:
+```
+NEXT_PUBLIC_API_URL=http://localhost:8706
+```
 
-- Compute resources (e.g., EC2 instances, Kubernetes clusters).
-- Networking resources (e.g., VPC, subnets, security groups).
-- Storage resources (e.g., S3 buckets, RDS instances).
-- Continuous Integration/Continuous Deployment (CI/CD):
+```bash
+cd expensy_frontend && npm install && npm run dev
+```
 
-#### 3. Implement a CI/CD pipeline using tools such as Jenkins, GitLab CI, or GitHub Actions.
+> Note: when running the backend on the host (not in Docker), use `127.0.0.1` for the
+> datastores. Inside docker-compose/Kubernetes the hostnames are the service names
+> (`mongo`, `redis`).
 
-The pipeline should:
-- Automatically build and test your application.
-- Deploy the application to a staging environment.
-- Deploy to production upon approval.
+## 2. Containers
 
-#### 4. Containerization and Orchestration:
-- Containerize your application using Docker.
-- Use Kubernetes or Docker Swarm for orchestration to ensure your application can scale horizontally.
+Each service has a multi-stage Dockerfile.
 
-#### 5. Monitoring and Logging:
+- **Backend** (`expensy_backend/Dockerfile`): builds TypeScript in a builder stage,
+  runs only the compiled output as a non-root user. Config is injected at runtime
+  via environment variables.
+- **Frontend** (`expensy_frontend/Dockerfile`): Next.js build. Because `NEXT_PUBLIC_*`
+  variables are inlined at **build time**, `NEXT_PUBLIC_API_URL` is passed as a
+  `--build-arg`:
 
-- Implement monitoring using tools like Prometheus, Grafana, or AWS CloudWatch.
+```bash
+docker build --build-arg NEXT_PUBLIC_API_URL=/api -t expensy-frontend .
+```
 
-#### 6. Autoscaling:
+## 3. CI/CD
 
-- Configure autoscaling for your compute resources (e.g., AWS Auto Scaling groups, Kubernetes Horizontal Pod Autoscaler) to handle varying loads.
+`.github/workflows/ci-cd.yaml` runs on push to `main`:
 
-#### 7. Security and Compliance:
+1. **build-test** — installs and builds both frontend and backend (catches compile errors).
+2. **docker-push** (main only) — authenticates to AWS via **OIDC** (no stored keys),
+   logs in to ECR, builds both images tagged with the commit SHA, and pushes them.
 
-- Implement best security practices, including network security (firewalls, security groups), data encryption, and IAM policies.
-- Ensure compliance with relevant standards (e.g., GDPR, HIPAA) as applicable.
+Images are pushed to Amazon ECR (`expensy-backend`, `expensy-frontend`). See
+`SECURITY.md` for the OIDC trust configuration.
 
-### Deliverables:
+## 4. Deploy to AWS (EKS)
 
-#### 1. Infrastructure Code:
+### Prerequisites
+- AWS CLI configured, Terraform ≥ 1.5, `kubectl`, `helm`
 
-- Provide all IaC scripts and configuration files like Terraform scripts, AWS CloudFormation templates, Ansible playbooks, etc.
-- Include documentation explaining the infrastructure setup and how to deploy it.
+### Step 1 — remote state backend (once)
 
-#### 2. CI/CD Pipeline Configuration:
+```bash
+cd infrastructure/bootstrap
+terraform init && terraform apply     # creates the S3 state bucket + DynamoDB lock table
+```
 
-- Provide the CI/CD pipeline configuration files like Jenkinsfile, GitHub Actions workflows, etc.
-- Include detailed documentation on how to set up and use the pipeline.
+### Step 2 — provision the cluster
 
-#### 3. Application Containerization and Orchestration:
+```bash
+cd ../main
+terraform init
+terraform apply                        # VPC + EKS cluster + node group (~15 min)
+```
 
-- Provide Dockerfiles and Kubernetes/Docker Swarm configuration files.
-- Include documentation on how to build and deploy the containers.
+### Step 3 — connect kubectl & deploy the app
 
-#### 4. Monitoring and Logging Configuration:
+```bash
+aws eks update-kubeconfig --region eu-central-1 --name expensy
+kubectl get nodes                      # confirm 2 nodes Ready
+kubectl apply -f k8s/                   # namespace, config, datastores, apps, gateway, HPA
+kubectl get pods -n expensy            # wait until all Running
+```
 
-- Provide configuration files for monitoring and logging tools, including Prometheus configuration, Grafana dashboards, ELK stack configuration, etc.
-- Include documentation on how to set up and interpret the monitoring and logging data.
+### Step 4 — get the public URL
 
-#### 5. Autoscaling Configuration:
+```bash
+kubectl get svc -n expensy gateway     # EXTERNAL-IP is the app's public URL
+```
 
-- Provide configuration files or scripts for autoscaling.
-- Include documentation explaining the autoscaling policies, criteria for scaling, how to simulate load to test autoscaling, commands to check the current scaling status, etc. 
+Open the ELB hostname in a browser — Expensy is live.
 
-#### 6. Security and Compliance Documentation:
+### Monitoring
 
-- Provide a security overview document detailing the measures implemented.
-- Include compliance checklists and how your solution adheres to them.
+```bash
+helm repo add prometheus-community https://prometheus-community.github.io/helm-charts
+helm install monitoring prometheus-community/kube-prometheus-stack \
+  --namespace monitoring --create-namespace
+```
 
-### Evaluation Criteria:
+See [`monitoring/README.md`](./monitoring/README.md) for accessing Grafana and the
+dashboard exports. Logs flow to CloudWatch via the `amazon-cloudwatch-observability`
+EKS add-on (control-plane logs enabled in Terraform).
 
-1. Scalability:
+### Teardown
 
-- The solution should handle increasing loads efficiently.
-- Autoscaling should work as expected, without degrading performance.
-- Infrastructure should be able to scale horizontally (adding more instances) or vertically (upgrading existing instances) as needed.
+```bash
+kubectl delete -f k8s/                  # remove app first so the ELB is released
+cd infrastructure/main
+terraform destroy                        # tears down the cluster and VPC
+```
 
-2. Reliability:
+> Teardown order matters: delete the Kubernetes `LoadBalancer` Service before
+> `terraform destroy`, or the leftover ELB can block VPC deletion.
 
-- The CI/CD pipeline should deploy the application without errors.
-- Monitoring and logging should provide useful insights into the application’s health.
-- The pipeline should be ready for smooth integration of new code and features.
+## Environment variables
 
-3. Security:
+| Variable | Service | Purpose |
+| --- | --- | --- |
+| `DATABASE_URI` | backend | MongoDB connection string (with `authSource=admin`) |
+| `REDIS_HOST` / `REDIS_PORT` / `REDIS_PASSWORD` | backend | Redis connection |
+| `PORT` | backend | API port (8706) |
+| `NEXT_PUBLIC_API_URL` | frontend | Backend URL — `/api` in-cluster (build-time) |
 
-- The solution should follow best security practices.
-- Compliance with relevant standards should be documented.
+Secrets are never committed. In-cluster they are provided via Kubernetes Secrets;
+locally via git-ignored `.env` / `.env.local` files (templates: `.env.example`).
 
-4. Documentation:
+## Tech stack
 
-- The documentation should be clear and comprehensive documentation for each component.
-- Ease of understanding and reproducibility must be considered while documenting all components. 
-
-<!-- ## Additional Resources :clipboard: 
-
-If you would like to study these concepts before the class or would benefit from some remedial studying, please utilize the resources below: -->
-
-<br>
-
-**Good luck!**
+Next.js · Node/Express (TypeScript) · MongoDB · Redis · Docker · nginx ·
+GitHub Actions (OIDC) · Amazon ECR · Terraform · Amazon EKS · Kubernetes ·
+Prometheus · Grafana · Amazon CloudWatch
