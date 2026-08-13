@@ -45,7 +45,7 @@ jobs:
           NEXT_PUBLIC_API_URL: /api
         run: npm run build
 
-# ---------- CD: build images, push to ECR (only on push to main) ----------
+  # ---------- CD: build images, push to ECR (only on push to main) ----------
   docker-push:
     needs: build-test
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
